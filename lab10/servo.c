@@ -2,26 +2,51 @@
 #include "lcd.h"
 #include "servo.h"
 #include <stdint.h>
+#include <stdlib.h>
+#include <stdio.h>
 
-void servo_init(){
-    SYSCTL_RCGC0_R = 0x00100000; //Enable PWM clock by set RCGC0 to bit 20
-    SYSCTL_RCGC2_R |= 0x01; //Enable the run mode clock by setting bit 1 (port b)
-    GPIO_PORTB_AFSEL_R |= 0x08; //Enable bit 4 for PB4 pin 58 M0PWM2
-    GPIO_PORTB_PCTL_R |= 0x000F0000; //bit 4 of port B for PMC4 I'm not really sure if this is correct
-    SYSCTL_RCC_R |= 0x00100000; //set bit 20 to enable USEPWMDIV
-    SYSCTL_RCC_R &= ~0x000E0000; //set bits 17-19 to 0
+unsigned int RIGHT_VAL = 0;
+unsigned int LEFT_VAL = 0;
 
-    //Config PWN gen for countdown mode
-    PWM_PWM0CTL_R = 0x00000000;
-    PWM_PWM0HENA_R = 0x0000_008C
-    PWM_PWM0GENB_R = 0x0000_008C
-    PWM_PWM0LOAD_R = 399; //setting the period to amount of clock ticks per period - 1 (0x0000.018F)
-    PWM_PWM0CMPA_R = 0x0000012B; // pulse width of MnPWM0 to 25%
-    PWM_PWM0CMPB_R = 0x00000063; // pulse width of MnPWM1 to 75%
-    PWM_PWM0CTL_R = 0x00000001; //start the timers in PWN gen 0
-    PWM_PWMENABLE_R = 0x00000003; // enable PWN outputs
+void servo_init(void){
+
+    //Config PB5 as T1CCP1
+    GPIO_PORTB_AFSEL_R |= 0x20;
+    GPIO_PORTB_PCTL_R &= ~0x00F00000;
+    GPIO_PORTB_PCTL_R |= 0x00700000;
+    GPIO_PORTB_DIR_R |= 0x20;
+    GPIO_PORTB_DEN_R |= 0x20;
+
+    SYSCTL_RCGCGPIO_R |= 0x02; //send clock to gpio B
+      while((SYSCTL_PRGPIO_R & 0x02) == 0){}
+
+    //Timer 1, Timer B, T1CCP1, PB5
+    TIMER1_CTL_R &= ~0x00000100; // Disabling the timer
+    TIMER1_CFG_R = 0x00000004; //GPTM config
+
+    TIMER1_TBMR_R &= ~(0x4); // clear TnCMR (bit 2) for edge count mode
+    TIMER1_TBMR_R |= 0x2; //sets TnMR, bits 0 and 1 to 0x2 for periodic mode
+    TIMER1_TBMR_R |= 0x8; //set TnAMS, bit 3 to 1 for PWM mode enable
+
+    //set the peropds fpr 20 ms PWM signal (320,000) ticks
+    TIMER1_TBPR_R = 0x04; //add upper hex val of 04 to prescale
+    TIMER1_TBILR_R = 0xE200; //upper value of e200 which is smushed together with prescaler to make 04e200
+    TIMER1_TBPMR_R = 0x04;
+    //match to clock cycle count of 0 degrees
+    TIMER1_TBMATCHR_R = 0xC4B4;
+
+
+    TIMER1_CTL_R |= 0x00000100; // enable timer
+
 }
 
-int servo_move(degrees){
-    return 0;
+
+
+void servo_move(float degrees){
+    int clockCyclesFromMax = (((LEFT_VAL - RIGHT_VAL) / 180) * degrees) + RIGHT_VAL;
+       int matchValues = 320000 - clockCyclesFromMax;
+       //set clock cycles
+       TIMER1_TBPMR_R = (matchValues >> 16);
+       //match to clock cycle count of 0 degrees
+       TIMER1_TBMATCHR_R = (matchValues &= ~0x110000);
 }
