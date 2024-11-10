@@ -1,27 +1,49 @@
-#include "servo.h"
-#include "lcd.h"
 #include "Timer.h"
-#include "cyBot_Scan.h"
+#include "lcd.h"
+#include "servo.h"
+#include "button.h"
 
-extern unsigned int RIGHT_VAL;
-extern unsigned int LEFT_VAL;
+#define _PART1 0
+#define _PART2 1
+#define _PART3 0
 
-int main(void)
-{
 
-    servo_init();
-    lcd_init();
+
+int main(void) {
+
     timer_init();
+    lcd_init();
+    servo_init();
+    button_init();
+    init_button_interrupts();
 
-    RIGHT_VAL = 7500;
-    LEFT_VAL = 35000;
+    lcd_printf("init");
 
-    timer_waitMillis(1500);
-   servo_move(45);
-    timer_waitMillis(1000);
+    extern volatile int button_event;
+    extern volatile int button_num;
+    extern volatile int clockwise;
+
+
+#if _PART1 //make drawing
+    servo_move(0);
+#endif
+
+#if _PART2
     servo_move(90);
-    timer_waitMillis(1000);
-    servo_move(135);
-    timer_waitMillis(1000);
-    servo_move(180);
+    while(1){
+           timer_waitMillis(100);
+           if(clockwise){
+               lcd_printf("%d \nClockwise", abs(180 - button_Handler(button_num)));
+
+           }
+           else{
+               lcd_printf("%d \nCounter Clockwise", abs(180 - button_Handler(button_num)));
+           }
+
+       }
+#endif
+
+#if PART3
+
+#endif
 }

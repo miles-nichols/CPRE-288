@@ -1,13 +1,13 @@
-/*
- * Author : @Miles Nichols
- *
- * servo.h
- */
-
 #ifndef SERVO_H_
 #define SERVO_H_
 
-void servo_init(void);
-int servo_move(float degrees);
+#include <stdint.h>
+#include <stdbool.h>
+#include <inc/tm4c123gh6pm.h>
+#include "driverlib/interrupt.h"
 
-#endif SERVO_H_
+
+void servo_init(void);
+void servo_move(float  degrees);
+
+#endif //SERVO_H_
