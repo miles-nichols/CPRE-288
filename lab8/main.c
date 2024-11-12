@@ -21,14 +21,14 @@
 #define _TESTDISTANCE 0
 #define _TESTAVERAGE 0
 #define _TESTTURN 0
-#define _PART1 1
-#define _PART2 1
-#define _PART3 0
-#define _PART4 0
 #define COEFFICIENT 306999000
 #define EXPONENT -2.371
 
-//The IR sensor can only fairly accurately display a distance value for an object 9 â€“ 50 cm away
+
+typedef enum { MANUAL, AUTONOMOUS_SCAN, AUTONOMOUS_MOVE } Mode;
+Mode current_mode = MANUAL;
+
+//The IR sensor can only fairly accurately display a distance value for an object 9 – 50 cm away
 
 int calculate_distanceLOG(int adc_value)
 {
@@ -52,19 +52,80 @@ int linearWidth(int theta, int distance)
     return (int) (2 * distance * tan((theta * (M_PI / 180)) / 2));
 }
 
+void toggle_mode()
+{
+    if (current_mode == MANUAL)
+    {
+        current_mode = AUTONOMOUS_SCAN;
+        uart_sendStr("Switched to Autonomous Mode.\n");
+    }
+    else
+    {
+        current_mode = MANUAL;
+        uart_sendStr("Switched to Manual Mode.\n");
+    }
+}
+
+void manual_mode(oi_t *sensor_data)
+{
+    char command = uart_receive();
+    switch (command)
+    {
+    case 'w':
+        move_forward(sensor_data, 10);  // Move forward 10 cm
+        break;
+    case 'a':
+        turn_counterclockwise(sensor_data, 15);  // Turn left 15 degrees
+        break;
+    case 's':
+        move_backward(sensor_data, 10);  // Move backward 10 cm
+        break;
+    case 'd':
+        turn_clockwise(sensor_data, 15);  // Turn right 15 degrees
+        break;
+    case 'm':
+        // Perform a 180-degree scan
+        uart_sendStr("Performing 180-degree scan...\n");
+        // Include code here to scan and send sensor data
+        break;
+    default:
+        uart_sendStr("Invalid command.\n");
+        break;
+    }
+}
+
+void bump_sensor_action(oi_t *sensor_data)
+{
+    // If bump sensor is pressed, avoid the object
+    if (sensor_data->bumpLeft || sensor_data->bumpRight)
+    {
+        uart_sendStr("Bump detected! Avoiding object.\n");
+        if (sensor_data->bumpLeft)
+        {
+            turn_clockwise(sensor_data, 90);  // Turn right to avoid
+        }
+        else if (sensor_data->bumpRight)
+        {
+            turn_counterclockwise(sensor_data, 90);  // Turn left to avoid
+        }
+        move_forward(sensor_data, 20);  // Move forward after avoiding
+    }
+}
+
 struct Object
 {
     int distance;
     int startAngle;
     int endAngle;
     int angularWidth;
-    int linearWidth;
+    double linearWidth;
     int middlePoint;
 };
 
 //bot 9 calibration!!!!!!!
 
-int main(void){
+int main(void)
+{
     oi_t *o_int = oi_alloc();
     oi_init(o_int);
     timer_init();
@@ -72,21 +133,16 @@ int main(void){
     uart_init();
     cyBOT_init_Scan(0b0011);
     cyBOT_Scan_t sensor_data;
-
-//    right_calibration_value = 348250; //Calibration for CyBot 2041-09 USE THIS ONE
-//    left_calibration_value = 1351000;
-
-    right_calibration_value = 280000; //Calibration for CyBot 2041-04
-    left_calibration_value = 1225000;
-
-    // Initialize ADC and LCD
     adc_init();
     lcd_init();
 
-    // Variable to hold ADC result
+    right_calibration_value = 243250; //Calibration for CyBot 2041-09 USE THIS ONE
+    left_calibration_value = 1256500;
+//    right_calibration_value = 280000; //Calibration for CyBot 2041-04
+//    left_calibration_value = 1225000;
+
     int adc_result;
     int distance;
-
     int avgArray[90];
     int i;
     int arrayIdx = 0;
@@ -94,7 +150,7 @@ int main(void){
     int objectCount = 0;
     struct Object objectList[13];
     bool objMaking = false;
-    char message[30] = "";
+    char message[50] = "";
 
 #if _CALIBRATE
     cyBOT_SERVO_cal();
@@ -150,110 +206,141 @@ int main(void){
 
 #endif
 
-#if _PART1
-    //180 Degree Scan
-    for (i = 0; i < 180; i += 2)
+    uart_sendStr(
+            "Press 't' to toggle modes, 'h' for scan in Autonomous Mode.\n");
+
+    while (1)
     {
-        int temp = 0;
-        cyBOT_Scan(i, &sensor_data);
-        adc_result = ADC0_InSeq3(); //raw
-        adc_result = adc_read(); //avg
-        distance = calculate_distancePOW(adc_result);
-        temp += distance;
+        char input = uart_receive();  // Get user input
 
-        cyBOT_Scan(i, &sensor_data);
-        adc_result = adc_read(); //avg
-        distance = calculate_distancePOW(adc_result);
-        temp += distance;
-
-        cyBOT_Scan(i, &sensor_data);
-        adc_result = adc_read(); //avg
-        distance = calculate_distancePOW(adc_result);
-        temp += distance;
-
-        avgArray[arrayIdx] = temp / 3;
-        arrayIdx++;
-    }
-
-    for (i = 0; i < 90; i++)
-    {
-        int angle = i * 2;
-        //        printf("Array[%d] Array1:%d Array2:%d Array3:%d AvgArray:%d\n", i, array1[i],
-        //               array2[i], array3[i], avgArray[i]);
-
-        //If the absolute difference between the next element and current element is less than 6, mark start angle of object
-        if ((abs((avgArray[i + 1] - avgArray[i])) > 8) && (avgArray[i] < 70)
-                && objMaking == false)
+        if (input == 't')
         {
-            objectList[objectCount].startAngle = angle;
-            objMaking = true; //Flagging that an object has started
+            toggle_mode();  // Switch between manual and autonomous modes
         }
-
-        //If the absolute difference between the last and current element is greater than 6, mark end angle of object
-        else if ((abs((avgArray[i] - avgArray[i-1])) > 8) && (avgArray[i] < 70)
-                && objMaking == true)
+        if (current_mode == MANUAL)
         {
-            objectList[objectCount].endAngle = angle;
-            objectCount++; //Increment the objectCount
-            objMaking = false; //Flagging that an object has ended
+            manual_mode(o_int);  // Handle manual mode controls
         }
-    }
-
-    //Scan using Ping Sensor
-    //find linear width with start and end angles
-    int temp = 0;
-    for (temp = 0; temp < objectCount; temp++)
-    {
-        objectList[temp].angularWidth = (objectList[temp].endAngle
-                - objectList[temp].startAngle);
-    }
-
-    int smallestWidthIdx = 0;
-    for (objectListIdx = 0; objectListIdx < objectCount; objectListIdx++)
-    {
-        objectList[objectListIdx].middlePoint =
-                (int) (objectList[objectListIdx].startAngle
-                        + objectList[objectListIdx].endAngle) / 2; //calculate midpoint of object
-        cyBOT_Scan(objectList[objectListIdx].middlePoint, &sensor_data);
-        timer_waitMillis(500);
-        objectList[objectListIdx].distance = sensor_data.sound_dist; //use sonar sensor to find the distance
-        timer_waitMillis(500);
-        objectList[objectListIdx].linearWidth = (2 * objectList[objectListIdx].distance) * tan((objectList[objectListIdx].angularWidth * (M_PI / 180)) / 2);
-        timer_waitMillis(500);
-
-        sprintf(message, "Object @ Angle:%d Distance:%d LWidth:%d\n",
-                objectList[objectListIdx].middlePoint,
-                objectList[objectListIdx].distance,
-                objectList[objectListIdx].linearWidth);
-
-        uart_sendStr(message); //debugging + send to PuTTY
-        //Turn angular width into linear width
-
-        if (objectListIdx + 1 < objectCount) // Check bounds
+        else if (current_mode == AUTONOMOUS_SCAN || current_mode == AUTONOMOUS_MOVE)
         {
-            if (objectList[objectListIdx].linearWidth
-                    < objectList[smallestWidthIdx].linearWidth)
+            if (input == 'h')
             {
-                smallestWidthIdx = objectListIdx; // Set smallestWidth based on condition
-            }
-        }
-        cyBOT_Scan(objectList[smallestWidthIdx].middlePoint, &sensor_data);
 
-    }
-#endif
+                //180 Degree Scan
+                arrayIdx = 0;
+                for (i = 0; i < 180; i += 2)
+                {
 
-#if _PART2
-        if (objectList[smallestWidthIdx].startAngle < 90) //If smallest object is within the right bounded area of the roomba
-        {
-            turn_clockwise(o_int,
-                           (90 - objectList[smallestWidthIdx].startAngle - 8)); //Turn clockwise the difference between 90
-            move_forward(o_int, (objectList[smallestWidthIdx].distance - 3));
-        }
-        else if (objectList[smallestWidthIdx].startAngle > 90) //If smallest object is within the left bounded area of the roomba
-        {
-            turn_counterclockwise(o_int,
+                    int temp = 0;
+                    cyBOT_Scan(i, &sensor_data);
+                    adc_result = adc_read(); //avg
+                    distance = calculate_distancePOW(adc_result);
+                    temp += distance;
+
+                    cyBOT_Scan(i, &sensor_data);
+                    adc_result = adc_read(); //avg
+                    distance = calculate_distancePOW(adc_result);
+                    temp += distance;
+
+                    cyBOT_Scan(i, &sensor_data);
+                    adc_result = adc_read(); //avg
+                    distance = calculate_distancePOW(adc_result);
+                    temp += distance;
+
+                    avgArray[arrayIdx] = temp / 3;
+                    arrayIdx++;
+                }
+
+                for (i = 0; i < 90; i++)
+                {
+                    int angle = i * 2;
+                    //        printf("Array[%d] Array1:%d Array2:%d Array3:%d AvgArray:%d\n", i, array1[i],
+                    //               array2[i], array3[i], avgArray[i]);
+
+                    //If the absolute difference between the next element and current element is less than 8, mark start angle of object
+                    if ((avgArray[i] < 65) && objMaking == false)
+                    {
+                        objectList[objectCount].startAngle = angle;
+                        objMaking = true; //Flagging that an object has started
+                    }
+
+                    //If the absolute difference between the last and current element is greater than 8, mark end angle of object
+                    else if ((avgArray[i] >= 65) && (objMaking == true))
+                    {
+                        objectList[objectCount].endAngle = angle;
+                        objectCount++; //Increment the objectCount
+                        objMaking = false; //Flagging that an object has ended
+                    }
+                }
+
+                //Scan using Ping Sensor
+                //find linear width with start and end angles
+                int temp = 0;
+                for (temp = 0; temp < objectCount; temp++)
+                {
+                    objectList[temp].angularWidth = (objectList[temp].endAngle
+                            - objectList[temp].startAngle);
+                    timer_waitMillis(500);
+                }
+
+                int smallestWidthIdx = 0;
+                for (objectListIdx = 0; objectListIdx < objectCount;
+                        objectListIdx++)
+                {
+                    objectList[objectListIdx].middlePoint =
+                            (int) (objectList[objectListIdx].startAngle
+                                    + objectList[objectListIdx].endAngle) / 2; //calculate midpoint of object
+                    cyBOT_Scan(objectList[objectListIdx].middlePoint,
+                               &sensor_data);
+                    timer_waitMillis(100);
+                    objectList[objectListIdx].distance = sensor_data.sound_dist; //use sonar sensor to find the distance
+                    timer_waitMillis(100);
+                    objectList[objectListIdx].linearWidth = (2
+                            * objectList[objectListIdx].distance)
+                            * tan((objectList[objectListIdx].angularWidth
+                                    * (M_PI / 180)) / 2);
+                    timer_waitMillis(100);
+
+                    sprintf(message,
+                            "Object @ Angle:%d Distance:%d LWidth:%.2f\n",
+                            objectList[objectListIdx].middlePoint,
+                            objectList[objectListIdx].distance,
+                            objectList[objectListIdx].linearWidth);
+
+                    uart_sendStr(message); //debugging + send to PuTTY
+                    //Turn angular width into linear width
+
+                    if (objectList[objectListIdx].linearWidth
+                            < objectList[smallestWidthIdx].linearWidth)
+                    {
+                        smallestWidthIdx = objectListIdx; // Set smallestWidth based on condition
+                    }
+
+                }
+
+                cyBOT_Scan(objectList[smallestWidthIdx].middlePoint,
+                           &sensor_data);
+
+                if (objectList[smallestWidthIdx].startAngle < 90) //If smallest object is within the right bounded area of the roomba
+                {
+                    turn_clockwise(
+                            o_int,
+                            (90 - objectList[smallestWidthIdx].startAngle - 8)); //Turn clockwise the difference between 90
+                    move_forward(o_int,
+                                 (objectList[smallestWidthIdx].distance - 13));
+                }
+                else if (objectList[smallestWidthIdx].startAngle > 90) //If smallest object is within the left bounded area of the roomba
+                {
+                    turn_counterclockwise(
+                            o_int,
                             (objectList[smallestWidthIdx].startAngle - 90 - 8));
-            move_forward(o_int, (objectList[smallestWidthIdx].distance - 3));
+                    move_forward(o_int,
+                                 (objectList[smallestWidthIdx].distance - 13));
+                }
+            }
+            bump_sensor_action(o_int);
         }
-#endif
+    }
+    oi_free(o_int);
+
 }
