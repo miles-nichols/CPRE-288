@@ -38,16 +38,7 @@ void servo_init(void){
 
 
 
-void servo_move(float  degrees){
-//       float millis;
-//       int high;
-//       int low;
-//       unsigned long low_hex;
-//       millis = (0.0056 * degrees) + 1;
-//       high = millis * 1000000 / 62.5;
-//       low = 320000 - high;
-//       TIMER1_TBMATCHR_R = low;
-//       TIMER1_TBPMR_R = low >> 16;
+void servo_move(float  degree){
     int counts = 151.59 * degree + 284366;
         TIMER1_TBMATCHR_R = counts;
         TIMER1_TBPMR_R = counts >> 16;

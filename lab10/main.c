@@ -4,8 +4,8 @@
 #include "button.h"
 
 #define _PART1 0
-#define _PART2 1
-#define _PART3 0
+#define _PART2 0
+#define _TEST 0
 
 
 
@@ -43,7 +43,12 @@ int main(void) {
        }
 #endif
 
-#if PART3
-
+#if _TEST
+    servo_move(90);
+    int i = 0;
+    for(i = 0; i < 180; i +=2){
+        servo_move(abs(180 - i));
+        timer_waitMillis(500);  // Add a delay for the servo to move
+    }
 #endif
 }
